@@ -32,6 +32,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.InputStreamReader;
+import java.util.Properties;
 
 /**
  * <dl>
@@ -52,14 +53,19 @@ import java.io.InputStreamReader;
  *    System.out.println(gv.getDotSource());
  *
  *    String type = "gif";
+ *    String representationType="dot";
  *    File out = new File("out." + type);   // out.gif in this example
- *    gv.writeGraphToFile( gv.getGraph( gv.getDotSource(), type ), out );
+ *    gv.writeGraphToFile( gv.getGraph(gv.getDotSource(), type, representationType), out );
  * </pre>
  * </dd>
  *
  * </dl>
  *
- * @version v0.5, 2012/04/22 (April) -- Patch of Abdur Rahman (OS detection + start subgraph)
+ * @version v0.6, 2013/11/28 (November) -- Patch of Olivier Duplouy is added. Now you 
+ * can specify the representation type of your graph: dot, neato, fdp, sfdp, twopi, circo
+ * @version v0.5.1, 2013/03/18 (March) -- Patch of Juan Hoyos (Mac support)
+ * @version v0.5, 2012/04/24 (April) -- Patch of Abdur Rahman (OS detection + start subgraph + 
+ * read config file)
  * @version v0.4, 2011/02/05 (February) -- Patch of Keheliya Gallaba is added. Now you
  * can specify the type of the output file: gif, dot, fig, pdf, ps, svg, png, etc.
  * @version v0.3, 2010/11/29 (November) -- Windows support + ability to read the graph from a text file
@@ -72,22 +78,32 @@ public class GraphViz
 	/**
 	 * Detects the client's operating system.
 	 */
-	private final static String osName = System.getProperty("os.name");
+	private final static String osName = System.getProperty("os.name").replaceAll("\\s","");
+
+	/**
+	 * Load the config.properties file.
+	 */
+	private final static String cfgProp = "config.properties";
+	private final static Properties configFile = new Properties() {
+		private final static long serialVersionUID = 1L; {
+			try {
+				load(new FileInputStream(cfgProp));
+			} catch (Exception e) {
+				System.err.println(e);
+			}
+		}
+	};
 
 	/**
 	 * The dir. where temporary files will be created.
 	 */
-	private final static String tempDirForLinux = "/tmp";
-	private final static String tempDirForWindows = "c:/temp";
-	private final static String TEMP_DIR = osName.equals("Linux") ? tempDirForLinux : tempDirForWindows;
+	private static String TEMP_DIR = configFile.getProperty("tempDirFor" + osName);
 
 	/**
 	 * Where is your dot program located? It will be called externally.
 	 */
-	private final static String dotForLinux = "/usr/bin/dot";
-	private final static String dotForWindows = "c:/Program Files (x86)/Graphviz 2.28/bin/dot.exe";
-	private final static String DOT = osName.equals("Linux") ? dotForLinux : dotForWindows;
-	
+	private static String DOT = configFile.getProperty("dotFor" + osName);
+
 	/**
 	 * The image size in dpi. 96 dpi is normal size. Higher values are 10% higher each.
 	 * Lower values 10% lower each.
@@ -133,6 +149,7 @@ public class GraphViz
 	 * a graph.
 	 */
 	public GraphViz() {
+		// empty
 	}
 
 	/**
@@ -172,9 +189,19 @@ public class GraphViz
 	 * Returns the graph as an image in binary format.
 	 * @param dot_source Source of the graph to be drawn.
 	 * @param type Type of the output image to be produced, e.g.: gif, dot, fig, pdf, ps, svg, png.
+	 * @param representationType Type of how you want to represent the graph:
+	 * <ul>
+	 * 	<li>dot</li>
+	 * 	<li>neato</li>
+	 * 	<li>fdp</li>
+	 * 	<li>sfdp</li>
+	 * 	<li>twopi</li>
+	 * 	<li>circo</li>
+	 * </ul>
+	 * @see http://www.graphviz.org under the Roadmap title
 	 * @return A byte array containing the image of the graph.
 	 */
-	public byte[] getGraph(String dot_source, String type)
+	public byte[] getGraph(String dot_source, String type, String representationType)
 	{
 		File dot;
 		byte[] img_stream = null;
@@ -183,7 +210,7 @@ public class GraphViz
 			dot = writeDotSourceToFile(dot_source);
 			if (dot != null)
 			{
-				img_stream = get_img_stream(dot, type);
+				img_stream = get_img_stream(dot, type, representationType);
 				if (dot.delete() == false) 
 					System.err.println("Warning: " + dot.getAbsolutePath() + " could not be deleted!");
 				return img_stream;
@@ -225,9 +252,19 @@ public class GraphViz
 	 * binary format.
 	 * @param dot Source of the graph (in dot language).
 	 * @param type Type of the output image to be produced, e.g.: gif, dot, fig, pdf, ps, svg, png.
+	 * @param representationType Type of how you want to represent the graph:
+	 * <ul>
+	 * 	<li>dot</li>
+	 * 	<li>neato</li>
+	 * 	<li>fdp</li>
+	 * 	<li>sfdp</li>
+	 * 	<li>twopi</li>
+	 * 	<li>circo</li>
+	 * </ul>
+	 * @see http://www.graphviz.org under the Roadmap title
 	 * @return The image of the graph in .gif format.
 	 */
-	private byte[] get_img_stream(File dot, String type)
+	private byte[] get_img_stream(File dot, String type, String representationType)
 	{
 		File img;
 		byte[] img_stream = null;
@@ -237,9 +274,9 @@ public class GraphViz
 			Runtime rt = Runtime.getRuntime();
 
 			// patch by Mike Chenault
-			String[] args = {DOT, "-T"+type, "-Gdpi="+dpiSizes[this.currentDpiPos], dot.getAbsolutePath(), "-o", img.getAbsolutePath()};
+			// representation type with -K argument by Olivier Duplouy
+			String[] args = {DOT, "-T"+type, "-K"+representationType, "-Gdpi="+dpiSizes[this.currentDpiPos], dot.getAbsolutePath(), "-o", img.getAbsolutePath()};
 			Process p = rt.exec(args);
-
 			p.waitFor();
 
 			FileInputStream in = new FileInputStream(img.getAbsolutePath());
@@ -315,7 +352,7 @@ public class GraphViz
 	 * Returns a string that is used to end a graph.
 	 * @return A string to close a graph.
 	 */
-    public String end_subgraph() {
+	public String end_subgraph() {
 		return "}";
 	}
 
